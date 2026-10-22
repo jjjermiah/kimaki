@@ -316,6 +316,68 @@ export async function refreshCliContext(bot: Bot) {
   }
 }
 
+// --hide-sessions: OpenCode's session lists show root sessions only. Each
+// project directory gets one empty parent session, and the Kimaki sessions
+// that run there become its children. The parent carries no metadata or
+// permissions; children set their own. Deleting the parent deletes every child.
+const hiddenParentCreations = new Map<string, Promise<Error | string>>()
+
+function hiddenParentId(
+  bot: Bot,
+  { directory, projectDirectory, channelName }: { directory: string; projectDirectory: string; channelName: string },
+): Promise<Error | string> {
+  // Concurrent first messages in one directory share one parent.
+  const pending = hiddenParentCreations.get(directory)
+  if (pending) return pending
+  const creation = resolveHiddenParentId(bot, { directory, projectDirectory, channelName }).finally(() => {
+    hiddenParentCreations.delete(directory)
+  })
+  hiddenParentCreations.set(directory, creation)
+  return creation
+}
+
+async function resolveHiddenParentId(
+  bot: Bot,
+  { directory, projectDirectory, channelName }: { directory: string; projectDirectory: string; channelName: string },
+): Promise<Error | string> {
+  const row = await bot.db.query.session_parents
+    .findFirst({ where: { directory } })
+    .catch((cause) => new DbError({ operation: 'read session_parents', cause }))
+  if (row instanceof Error) return row
+  if (row) {
+    const alive = await oc(bot, 'get hidden parent session', (client) => client.session.get({ sessionID: row.session_id }))
+    if (!(alive instanceof Error)) return row.session_id
+    if (!isMissingSession(alive, row.session_id)) return alive
+    logger.log(`hidden parent ${row.session_id} of ${directory} was deleted, recreating it`)
+  }
+  const created = await oc(bot, 'create hidden parent session', (client) =>
+    client.session.create({ title: `kimaki: ${channelName}`, location: { directory } }),
+  )
+  if (created instanceof Error) return created
+  const saved = await bot.db
+    .insert(schema.session_parents)
+    .values({ directory, project_directory: projectDirectory, session_id: created.id })
+    .onConflictDoUpdate({ target: schema.session_parents.directory, set: { project_directory: projectDirectory, session_id: created.id } })
+    .catch((cause) => new DbError({ operation: 'save session_parents', cause }))
+  if (saved instanceof Error) return saved
+  return created.id
+}
+
+// The client throws OpenCode's declared error body as the Error itself (`Object.assign(new Error(message), body)`).
+export function isMissingSession(error: Error, sessionID: string): boolean {
+  const failure: unknown = error instanceof OpenCodeError ? error.cause : error
+  return typeof failure === 'object' && failure !== null && '_tag' in failure && failure._tag === 'SessionNotFoundError' && 'sessionID' in failure && failure.sessionID === sessionID
+}
+
+// Hidden parents of a project: /resume lists their children, and skips the parents.
+export async function hiddenParentIds(bot: Bot, projectDirectory: string): Promise<DbError | string[]> {
+  const rows = await bot.db.query.session_parents
+    .findMany({ where: { project_directory: projectDirectory } })
+    .catch((cause) => new DbError({ operation: 'read session_parents', cause }))
+  if (rows instanceof Error) return rows
+  return rows.map((row) => row.session_id)
+}
+
 export async function startSession(
   bot: Bot,
   {
@@ -416,6 +478,13 @@ export async function startSession(
     return setup
   }
   const { checkout, directory, model, agent } = setup
+  const parentID = bot.hideSessions
+    ? await hiddenParentId(bot, { directory, projectDirectory: defaults?.directory ?? requestedDirectory, channelName: channel.name })
+    : undefined
+  if (parentID instanceof Error) {
+    await thread.delete('session setup failed').catch(() => undefined)
+    return parentID
+  }
 
   const kimaki = {
     threadId: thread.id,
@@ -428,7 +497,7 @@ export async function startSession(
   const session = await oc(bot, 'session.create', (client) =>
     client.session.create({
       title: threadName,
-      location: { directory },
+      ...(parentID ? { parentID } : { location: { directory } }),
       ...(model && { model }),
       ...(agent && { agent }),
       permissions: [

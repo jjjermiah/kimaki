@@ -499,10 +499,13 @@ export async function startTestBot({
   analytics,
   clock,
   schedulerIntervalMs,
+  hideSessions,
 }: {
   dataDir: string
   twin: TestTwin
   server: OpencodeTestServer
+  // --hide-sessions: Kimaki sessions become children of a hidden parent per directory.
+  hideSessions?: boolean
   // Voice transcription against startFakeGemini() / startFakeOpenAI().
   geminiBaseUrl?: string
   openaiBaseUrl?: string
@@ -544,6 +547,7 @@ export async function startTestBot({
     opencodeConfigDir: server.configDir,
     opencodeDbFile,
     ensureOpencode: false,
+    hideSessions: hideSessions ?? false,
     analytics: analytics ?? disabledAnalytics,
     ...(clock && { clock }),
     ...(schedulerIntervalMs !== undefined && { schedulerIntervalMs }),

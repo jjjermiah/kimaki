@@ -22,7 +22,7 @@ import { oc, type Bot, type PromptFile } from '../bot.ts'
 import { ConfigError } from '../errors.ts'
 import { selectRow, truncate } from '../format-parts.ts'
 import { authorOf, replyError, resolveTarget, respondChoices, type InteractionRoutes } from '../interaction-context.ts'
-import { fork, resume, startSession } from '../sessions.ts'
+import { fork, hiddenParentIds, resume, startSession } from '../sessions.ts'
 import { stripTurnContext } from '../system-prompt.ts'
 import { resolveWorkingDirectory } from '../worktrees.ts'
 
@@ -206,19 +206,36 @@ async function sessionAutocomplete(bot: Bot, interaction: AutocompleteInteractio
   if (focused.name === 'session') {
     const project = await oc(bot, 'location.get', (client) => client.location.get({ location: { directory: target.projectDirectory } }))
     if (project instanceof Error) return respondChoices(interaction, project)
-    const sessions = await oc(bot, 'session.list', (client) =>
+    const hidden = await hiddenParentIds(bot, target.projectDirectory)
+    if (hidden instanceof Error) return respondChoices(interaction, hidden)
+    const roots = await oc(bot, 'session.list', (client) =>
       client.session.list({ project: project.project.id, parentID: null, order: 'desc', limit: 100, ...(query && { search: query }) }),
     )
-    if (sessions instanceof Error) return respondChoices(interaction, sessions)
+    if (roots instanceof Error) return respondChoices(interaction, roots)
+    // Kimaki sessions under --hide-sessions are children of the hidden parents; the parents are roots, not sessions to resume.
+    const children = await Promise.all(
+      hidden.map((parentID) =>
+        oc(bot, 'session.list', (client) =>
+          client.session.list({ parentID, order: 'desc', limit: 100, ...(query && { search: query }) }),
+        ),
+      ),
+    )
+    for (const list of children) {
+      if (list instanceof Error) return respondChoices(interaction, list)
+    }
+    const listed = [
+      ...roots.data.filter((session) => !hidden.includes(session.id)),
+      ...children.flatMap((list) => (list instanceof Error ? [] : list.data)),
+    ].sort((a, b) => b.time.updated - a.time.updated)
     const inProject = await Promise.all(
-      sessions.data.map(async (session) => {
+      listed.map(async (session) => {
         const resolved = await resolveWorkingDirectory({ projectDirectory: target.projectDirectory, candidate: session.location.directory })
         return !(resolved instanceof Error)
       }),
     )
     return respondChoices(
       interaction,
-      sessions.data.filter((_, index) => inProject[index]).slice(0, MAX_OPTIONS).map((session) => {
+      listed.filter((_, index) => inProject[index]).slice(0, MAX_OPTIONS).map((session) => {
         const suffix = ` (${shortDate(session.time.updated)})`
         return { name: `${flat(session.title ?? 'Untitled', 100 - suffix.length)}${suffix}`, value: session.id }
       }),

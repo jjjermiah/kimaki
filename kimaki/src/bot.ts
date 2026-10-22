@@ -69,6 +69,8 @@ export type Bot = {
   allowAllUsers: boolean
   // Built-in skill ids (builtin-skills.ts) denied through the permissions of new sessions.
   disabledSkills: readonly string[]
+  // --hide-sessions: Kimaki sessions are children of a hidden parent session per directory.
+  hideSessions: boolean
   features: BotFeatures
 }
 

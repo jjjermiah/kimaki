@@ -1,0 +1,27 @@
+---
+title: Hidden Sessions
+description: Keep Kimaki's sessions out of OpenCode's session lists with --hide-sessions.
+icon: lucide:eye-off
+---
+
+Every Discord thread is an OpenCode session. If you use the same OpenCode server from the TUI, the desktop app or the mobile app, those threads fill its session lists.
+
+Start Kimaki with **`--hide-sessions`** to keep them out of the lists:
+
+```bash
+kimaki --hide-sessions
+```
+
+OpenCode's lists (the TUI session picker, the app home, the session switcher) show only sessions without a parent. With the flag on, Kimaki creates one empty parent session per project folder and makes every Kimaki session there a child of it. The parent is titled `kimaki: <channel name>`. A thread in a [worktree](../features/worktrees) gets its own parent, because a child runs in its parent's folder.
+
+`/resume` still finds these sessions. Its list shows the sessions of the project's threads and skips the parent sessions.
+
+## Caveats
+
+- **Deleting a parent deletes its sessions.** OpenCode removes every child with the parent, so the threads of that folder lose their sessions. The next new thread in that folder creates the parent again. A thread whose session was deleted stays bound to it: start a new thread instead.
+- **Sessions made before the flag stay in the lists.** The flag only applies to new sessions.
+- **Forks stay visible.** `/fork` and `/btw` create a root session in OpenCode, because OpenCode's fork has no parent.
+- **Adopted sessions are not moved.** `/resume` of a session that is already in the lists keeps it there. It does not move it under a parent.
+- **The parent sessions show in the lists.** There is one empty `kimaki:` session per folder that Kimaki used.
+
+The flag is set when the bot starts. Turning it off stops new sessions from using a parent. Existing children stay where they are and `/resume` still finds them.

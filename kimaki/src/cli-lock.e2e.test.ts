@@ -378,6 +378,7 @@ test('CLI help documents the supported P7 commands', async () => {
       --allow-all-users             Every server member can use the bot (role "no-kimaki" still denies; provider login stays admin-only)
       --voice <name>                Voice of voice calls, saved for later starts (e.g. cove, juniper, sol). "default" resets it
       --disable-skills <list>       Built-in Kimaki skills to turn off: "all" or a comma separated list (kimaki-debug,kimaki-tunnel)
+      --hide-sessions               Keep Kimaki sessions out of OpenCode session lists: each project folder gets one hidden parent session
       --no-analytics                Disable anonymous usage analytics (same as KIMAKI_STRADA_ENABLED=0)
       --if-not-running              Start only if no bot runs; never stop the running one (used by autostart)
       -h, --help                    Display this message
