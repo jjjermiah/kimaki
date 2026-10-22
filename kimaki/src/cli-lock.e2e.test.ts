@@ -321,9 +321,9 @@ test('CLI help documents the supported P7 commands', async () => {
         -c, --channel <id>              Kimaki voice channel to post in (default in voice calls: KIMAKI_CHANNEL_ID)
 
       Tools:
-      tunnel                            Run a command and expose its local port with a public URL. The child gets TRAFORO_URL
+      tunnel                            Run a command and expose its local port with a public opentunnel.xyz URL. The child gets KIMAKI_TUNNEL_URL
         -p, --port <port>               Local port (default: read from the command output)
-        -t, --tunnel-id <id>            Fixed tunnel ID (default: random). Only for public-safe services
+        -t, --tunnel-id <id>            Fixed subdomain (default: random). Only for public-safe services
         --host <host>                   Local host (default: localhost)
         -k, --kill                      Kill the process on --port first
 
@@ -376,6 +376,7 @@ test('CLI help documents the supported P7 commands', async () => {
       --restart-onboarding          Choose credentials again
       --worktrees                   Use a fresh Git worktree for new sessions unless the channel overrides it
       --allow-all-users             Every server member can use the bot (role "no-kimaki" still denies; provider login stays admin-only)
+      --message-tool                Discord shows only a concise reply the agent sends with a send_message tool; plain text stays visible in the OpenCode TUI
       --voice <name>                Voice of voice calls, saved for later starts (e.g. cove, juniper, sol). "default" resets it
       --disable-skills <list>       Built-in Kimaki skills to turn off: "all" or a comma separated list (kimaki-debug,kimaki-tunnel)
       --hide-sessions               Keep Kimaki sessions out of OpenCode session lists: each project folder gets one hidden parent session

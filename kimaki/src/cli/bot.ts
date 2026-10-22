@@ -1,6 +1,6 @@
 // Bot lifecycle and setup: the root command (start + onboarding), provider
 // login, tools (tunnel, tts), and bot status, logs, credentials and keys.
-// main.ts, onboarding.ts, traforo, SQLite and voice are loaded only by the
+// main.ts, onboarding.ts, tunnel.ts, SQLite and voice are loaded only by the
 // commands that run them (see the note in shared.ts).
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -89,6 +89,7 @@ export function registerStartCommand(cli: Goke) {
     .option('--restart-onboarding', 'Choose credentials again')
     .option('--worktrees', 'Use a fresh Git worktree for new sessions unless the channel overrides it')
     .option('--allow-all-users', 'Every server member can use the bot (role "no-kimaki" still denies; provider login stays admin-only)')
+    .option('--message-tool', 'Discord shows only a concise reply the agent sends with a send_message tool; plain text stays visible in the OpenCode TUI')
     .option('--voice <name>', 'Voice of voice calls, saved for later starts (e.g. cove, juniper, sol). "default" resets it')
     .option('--disable-skills <list>', 'Built-in Kimaki skills to turn off: "all" or a comma separated list (kimaki-debug,kimaki-tunnel)')
     .option('--hide-sessions', 'Keep Kimaki sessions out of OpenCode session lists: each project folder gets one hidden parent session')
@@ -221,6 +222,7 @@ export function registerStartCommand(cli: Goke) {
         allowAllUsers: Boolean(options.allowAllUsers),
         disabledSkills,
         hideSessions: Boolean(options.hideSessions),
+        messageTool: Boolean(options.messageTool),
       })
       if (bot instanceof Error) failStartup(bot)
       // exit() keeps process.exitCode: the restart route sets RESTART_EXIT_CODE before its SIGTERM.
@@ -251,6 +253,7 @@ export function registerStartCommand(cli: Goke) {
           ...(options.allowAllUsers ? ['--allow-all-users'] : []),
           ...(options.disableSkills ? ['--disable-skills', options.disableSkills] : []),
           ...(options.hideSessions ? ['--hide-sessions'] : []),
+          ...(options.messageTool ? ['--message-tool'] : []),
           ...(options.noAnalytics ? ['--no-analytics'] : []),
           ...(options.machineName ? ['--machine-name', options.machineName] : []),
         ] })
@@ -286,9 +289,9 @@ export function registerLoginCommands(cli: Goke) {
 
 // tunnel, tts
 export function registerToolCommands(cli: Goke) {
-  cli.command('tunnel', 'Run a command and expose its local port with a public URL. The child gets TRAFORO_URL')
+  cli.command('tunnel', 'Run a command and expose its local port with a public opentunnel.xyz URL. The child gets KIMAKI_TUNNEL_URL')
     .option('-p, --port <port>', 'Local port (default: read from the command output)')
-    .option('-t, --tunnel-id <id>', 'Fixed tunnel ID (default: random). Only for public-safe services')
+    .option('-t, --tunnel-id <id>', 'Fixed subdomain (default: random). Only for public-safe services')
     .option('--host <host>', 'Local host (default: localhost)')
     .option('-k, --kill', 'Kill the process on --port first')
     .example('kimaki tunnel -- pnpm dev')
@@ -297,8 +300,9 @@ export function registerToolCommands(cli: Goke) {
       const port = options.port ? Number(options.port) : undefined
       if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) fail(new Error(`Invalid --port ${options.port}`))
       if (!port && command.length === 0) fail(new Error('Pass a command after --, or --port <port>. Example: kimaki tunnel -- pnpm dev'))
-      const { runTunnel } = await import('traforo/run-tunnel')
-      await runTunnel({ port, command: command.length > 0 ? command : undefined, tunnelId: options.tunnelId, localHost: options.host, baseDomain: 'kimaki.dev', kill: options.kill })
+      const { runTunnel } = await import('../tunnel.ts')
+      const result = await runTunnel({ port, command: command.length > 0 ? command : undefined, name: options.tunnelId, host: options.host, kill: options.kill })
+      if (result instanceof Error) fail(result)
     })
 
   cli.command('tts [text]', 'Text to speech with OpenAI or Gemini. Reads stdin if no text is given')
