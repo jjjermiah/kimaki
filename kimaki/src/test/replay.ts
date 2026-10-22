@@ -20,9 +20,12 @@ export function loadFixture(file: string): V2Event[] {
 }
 
 export function rootSessionId(events: V2Event[]): string {
-  const created = events.find((event) => event.type === 'session.created' && !event.data.parentID)
-  if (!created || created.type !== 'session.created') throw new Error('fixture has no root session.created')
-  return created.data.sessionID
+  // Under --hide-sessions the root's parentID is a hidden parent that is not in the recording.
+  const created = events.filter((event) => event.type === 'session.created')
+  const recorded = new Set(created.map((event) => event.data.sessionID))
+  const root = created.find((event) => !event.data.parentID || !recorded.has(event.data.parentID))
+  if (!root) throw new Error('fixture has no root session.created')
+  return root.data.sessionID
 }
 
 export const DEFAULT_PREFS: Prefs = {

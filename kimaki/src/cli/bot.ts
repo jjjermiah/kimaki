@@ -91,6 +91,7 @@ export function registerStartCommand(cli: Goke) {
     .option('--allow-all-users', 'Every server member can use the bot (role "no-kimaki" still denies; provider login stays admin-only)')
     .option('--voice <name>', 'Voice of voice calls, saved for later starts (e.g. cove, juniper, sol). "default" resets it')
     .option('--disable-skills <list>', 'Built-in Kimaki skills to turn off: "all" or a comma separated list (kimaki-debug,kimaki-tunnel)')
+    .option('--hide-sessions', 'Keep Kimaki sessions out of OpenCode session lists: each project folder gets one hidden parent session')
     .option('--no-analytics', 'Disable anonymous usage analytics (same as KIMAKI_STRADA_ENABLED=0)')
     .option('--if-not-running', 'Start only if no bot runs; never stop the running one (used by autostart)')
     .action(async (options) => {
@@ -219,6 +220,7 @@ export function registerStartCommand(cli: Goke) {
         autoWorktrees: Boolean(options.worktrees),
         allowAllUsers: Boolean(options.allowAllUsers),
         disabledSkills,
+        hideSessions: Boolean(options.hideSessions),
       })
       if (bot instanceof Error) failStartup(bot)
       // exit() keeps process.exitCode: the restart route sets RESTART_EXIT_CODE before its SIGTERM.
@@ -248,6 +250,7 @@ export function registerStartCommand(cli: Goke) {
           ...(options.worktrees ? ['--worktrees'] : []),
           ...(options.allowAllUsers ? ['--allow-all-users'] : []),
           ...(options.disableSkills ? ['--disable-skills', options.disableSkills] : []),
+          ...(options.hideSessions ? ['--hide-sessions'] : []),
           ...(options.noAnalytics ? ['--no-analytics'] : []),
           ...(options.machineName ? ['--machine-name', options.machineName] : []),
         ] })

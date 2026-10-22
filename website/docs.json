@@ -76,6 +76,7 @@
           "docs/configuration/access-control",
           "docs/configuration/permissions",
           "docs/configuration/verbosity",
+          "docs/configuration/hidden-sessions",
           "docs/configuration/mcp",
           "docs/configuration/projects"
         ]

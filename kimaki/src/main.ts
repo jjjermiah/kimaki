@@ -68,6 +68,8 @@ export type StartBotOptions = {
   allowAllUsers?: boolean
   // Built-in skill ids denied in new sessions (builtin-skills.ts).
   disabledSkills?: readonly string[]
+  // --hide-sessions: new sessions become children of a hidden parent per directory (sessions.ts).
+  hideSessions?: boolean
 }
 
 export type BotHandle = Bot & {
@@ -185,6 +187,7 @@ export async function startBot(options: StartBotOptions): Promise<Error | BotHan
     autoWorktrees: options.autoWorktrees ?? false,
     allowAllUsers: options.allowAllUsers ?? false,
     disabledSkills: options.disabledSkills ?? [],
+    hideSessions: options.hideSessions ?? false,
     features: { withSleepLock: createSleepLock(), waitForPlugin: createPluginWait({ opencode }), agentUi, voiceCalls },
   }
   const scheduler = createScheduler({

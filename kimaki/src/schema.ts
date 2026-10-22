@@ -56,6 +56,15 @@ export const channel_directories = s.sqliteTable('channel_directories', {
   created_at: datetime('created_at').default(orm.sql`CURRENT_TIMESTAMP`),
 })
 
+// --hide-sessions: the hidden parent session of each directory that Kimaki sessions run in.
+// OpenCode's session lists show root sessions only, so children of this one stay out of them.
+export const session_parents = s.sqliteTable('session_parents', {
+  directory: s.text('directory').primaryKey().notNull(),
+  project_directory: s.text('project_directory').notNull(),
+  session_id: s.text('session_id').notNull(),
+  created_at: datetime('created_at').default(orm.sql`CURRENT_TIMESTAMP`),
+})
+
 export const guild_categories = s.sqliteTable('guild_categories', {
   guild_id: s.text('guild_id').primaryKey().notNull(),
   category_id: s.text('category_id'),
@@ -178,6 +187,7 @@ export const relations = defineRelations({
   channel_mention_mode,
   scheduled_tasks,
   session_sleeps,
+  session_parents,
 }, (r) => ({
   thread_sessions: {
     scheduled_tasks: r.many.scheduled_tasks(),
@@ -225,6 +235,7 @@ export const relations = defineRelations({
     thread: r.one.thread_sessions({ from: r.scheduled_tasks.thread_id, to: r.thread_sessions.thread_id }),
   },
   session_sleeps: {},
+  session_parents: {},
 }))
 
 export type V1Verbosity = typeof channel_verbosity.$inferSelect.verbosity
