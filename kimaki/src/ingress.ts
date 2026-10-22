@@ -26,7 +26,8 @@ import {
 } from 'discord.js'
 import * as errore from 'errore'
 
-import { projectOf, sessionDirectory, type Bot, type PromptFile } from './bot.ts'
+import { oc, projectOf, sessionDirectory, type Bot, type PromptFile } from './bot.ts'
+import { accessLevel, hasRestrictedRules, isPlainPrompt, mayUseChannel, type AccessLevel } from './channel-access.ts'
 import { formatError, NOTIFY_MESSAGE_FLAGS, SILENT_MESSAGE_FLAGS } from './format-parts.ts'
 import { createLogger } from './logger.ts'
 import { parseInput, sendInput } from './lock-routes.ts'
@@ -39,9 +40,9 @@ import { isVoiceAttachment, parseVoiceMessage, transcribe, voiceMediaType, type 
 
 const logger = createLogger('INGRESS')
 
-// Owner, Administrator, Manage Server, or a role named "Kimaki"; with
-// --allow-all-users every member. A role named "no-kimaki" always denies.
-// Missing member data fails closed.
+// Full access (see channel-access.ts): owner, Administrator, Manage Server,
+// role "kimaki", or --allow-all-users. Slash commands, buttons, voice and edits
+// need full access. Missing member data fails closed.
 export async function canUseKimaki(
   bot: Pick<Bot, 'allowAllUsers'>,
   { guild, userId }: { guild: Guild; userId: string },
@@ -53,24 +54,42 @@ export async function canUseKimaki(
     return false
   }
   if (!(member instanceof GuildMember)) return false
-  return memberCanUseKimaki(bot, member)
+  return memberAccess(bot, member) === 'full'
 }
 
 // MESSAGE_CREATE carries the author's current roles: no REST fetch on the hot path.
 // Discord omits the member only for webhook and ephemeral messages, which never get here.
-function authorCanUseKimaki(bot: Bot, message: Message<true>): Promise<boolean> {
-  if (message.member instanceof GuildMember) return Promise.resolve(memberCanUseKimaki(bot, message.member))
-  return canUseKimaki(bot, { guild: message.guild, userId: message.author.id })
+async function authorMember(message: Message<true>): Promise<GuildMember | null> {
+  if (message.member instanceof GuildMember) return message.member
+  const member = await message.guild.members.fetch(message.author.id).catch(() => null)
+  return member instanceof GuildMember ? member : null
 }
 
-function memberCanUseKimaki(bot: Pick<Bot, 'allowAllUsers'>, member: GuildMember): boolean {
-  const roleNames = member.roles.cache.map((role) => role.name.toLowerCase())
-  if (roleNames.includes('no-kimaki')) return false
-  if (bot.allowAllUsers) return true
-  if (member.guild.ownerId === member.id) return true
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true
-  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true
-  return roleNames.includes('kimaki')
+function memberAccess(bot: Pick<Bot, 'allowAllUsers'>, member: GuildMember): AccessLevel {
+  return accessLevel({
+    allowAllUsers: bot.allowAllUsers,
+    ownerOrAdmin:
+      member.guild.ownerId === member.id ||
+      member.permissions.has(PermissionFlagsBits.Administrator) ||
+      member.permissions.has(PermissionFlagsBits.ManageGuild),
+    roleNames: member.roles.cache.map((role) => role.name),
+  })
+}
+
+// Restricted members may post only where their role names the channel, and in
+// a thread only when that thread's session has the restricted rules.
+async function restrictedMayPost(
+  bot: Bot,
+  { member, channelName, sessionId }: { member: GuildMember; channelName: string | null; sessionId: string | null },
+): Promise<boolean> {
+  if (!channelName || !mayUseChannel({ roleNames: member.roles.cache.map((role) => role.name), channelName })) return false
+  if (!sessionId) return true
+  const info = await oc(bot, 'session.get', (client) => client.session.get({ sessionID: sessionId }))
+  if (info instanceof Error) {
+    logger.warn(`cannot check restrictions of session ${sessionId}`, info)
+    return false
+  }
+  return hasRestrictedRules(info.permissions ?? [])
 }
 
 // Attachments are saved under <dataDir>/attachments/<messageId>/ and sent as
@@ -213,7 +232,9 @@ async function handleMessage(bot: Bot, message: Message) {
   if (!project) return
   if (project.channel_type === 'voice') {
     // The text chat of the voice channel talks to the running call.
-    if (message.author.bot || thread || !(await authorCanUseKimaki(bot, message))) return
+    if (message.author.bot || thread) return
+    const member = await authorMember(message)
+    if (!member || memberAccess(bot, member) !== 'full') return
     bot.features.voiceCalls.text(bot, {
       guildId: message.guild.id,
       channelId,
@@ -226,7 +247,9 @@ async function handleMessage(bot: Bot, message: Message) {
     if (message.author.id !== bot.discord.user?.id) return
     return handleRemoteEnvelope(bot, { message, channelId, threadId: thread?.id ?? null })
   }
-  if (!(await authorCanUseKimaki(bot, message))) {
+  const member = await authorMember(message)
+  const access = member ? memberAccess(bot, member) : 'none'
+  if (!member || access === 'none') {
     logger.log(`ignoring ${message.author.username}: no Kimaki permission`)
     return
   }
@@ -240,6 +263,23 @@ async function handleMessage(bot: Bot, message: Message) {
 
   const attachments = [...message.attachments.values()]
   const voice = attachments.find((attachment) => isVoiceAttachment(attachmentLike(attachment)))
+  if (access === 'restricted') {
+    // Refused before anything is saved or transcribed.
+    const channelName = thread ? (thread.parent?.name ?? null) : 'name' in channel ? channel.name : null
+    if (!(await restrictedMayPost(bot, { member, channelName, sessionId: sessionId ?? null }))) {
+      logger.log(`ignoring ${author.username}: restricted member outside their channel or session`)
+      return
+    }
+    const parsed = voice ? null : parseTextMessage({ content: message.content })
+    if (voice || (parsed && !isPlainPrompt(parsed))) {
+      await message.reply({
+        content: 'Restricted: only plain messages here. No `!` shell, `/` commands or voice.',
+        allowedMentions: { repliedUser: false },
+        flags: SILENT_MESSAGE_FLAGS,
+      }).catch(() => undefined)
+      return
+    }
+  }
   const files = await saveAttachments({
     dataDir: bot.dataDir,
     messageId: message.id,

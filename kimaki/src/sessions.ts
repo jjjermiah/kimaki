@@ -34,6 +34,7 @@ import { formatEcho } from './queue.ts'
 import type { Route } from './routes.ts'
 import * as schema from './schema.ts'
 import { disabledSkillRules } from './builtin-skills.ts'
+import { isRestrictedChannel, RESTRICTED_SESSION_RULES } from './channel-access.ts'
 import { baseInstructions, INSTRUCTION_KEY, type ScheduledRun } from './system-prompt.ts'
 import { createWorktree, resolveWorkingDirectory } from './worktrees.ts'
 
@@ -45,6 +46,11 @@ type PermissionRules = NonNullable<NonNullable<Parameters<OpenCodeClient['sessio
 // from the model's tool list; forks and subagents inherit it, and later rules
 // (`--permission question:allow`) still win.
 const NO_QUESTION_TOOL = { action: 'question', resource: '*', effect: 'deny' } as const
+
+// Sessions in a channel with a role `kimaki-<channel name>` get RESTRICTED_SESSION_RULES.
+function isRestrictedTextChannel(channel: TextChannel): boolean {
+  return isRestrictedChannel({ guildRoleNames: channel.guild.roles.cache.map((role) => role.name), channelName: channel.name })
+}
 
 export function btwPrompt({
   text,
@@ -404,6 +410,7 @@ export async function startSession(
   const created = await creating
   if (created instanceof Error) return created
   const { channel, thread } = created
+  const restricted = isRestrictedTextChannel(channel)
   if (setup instanceof Error) {
     await thread.delete('session setup failed').catch(() => undefined)
     return setup
@@ -424,7 +431,12 @@ export async function startSession(
       location: { directory },
       ...(model && { model }),
       ...(agent && { agent }),
-      permissions: [NO_QUESTION_TOOL, ...disabledSkillRules(bot.disabledSkills), ...(permissions ?? [])],
+      permissions: [
+        NO_QUESTION_TOOL,
+        ...disabledSkillRules(bot.disabledSkills),
+        ...(permissions ?? []),
+        ...(restricted ? RESTRICTED_SESSION_RULES : []),
+      ],
       metadata: { kimaki },
     }),
   )
@@ -534,7 +546,9 @@ async function adoptSession(
     const kimaki = { ...marker, source: scheduledTask ? 'task' : 'discord', ...cliContext(bot), threadId: thread.id, channelId: channel.id }
     // A session with its own question rule (a fork, or --permission) keeps it.
     const rules = session.permissions ?? []
-    const permissions = rules.some((rule) => rule.action === 'question') ? rules : [NO_QUESTION_TOOL, ...disabledSkillRules(bot.disabledSkills), ...rules]
+    const withQuestion = rules.some((rule) => rule.action === 'question') ? rules : [NO_QUESTION_TOOL, ...disabledSkillRules(bot.disabledSkills), ...rules]
+    // A resumed or forked session moved into a restricted channel gets the restricted rules too.
+    const permissions = isRestrictedTextChannel(channel) ? [...withQuestion, ...RESTRICTED_SESSION_RULES] : withQuestion
     const marked = await oc(bot, 'session.update', (client) =>
       client.session.update({ sessionID: sessionId, metadata: { ...session.metadata, kimaki }, permissions }),
     )

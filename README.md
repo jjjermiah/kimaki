@@ -129,6 +129,7 @@ Kimaki checks Discord permissions before processing any message. Users need **on
 The "Kimaki" role is the recommended approach for team access. Messages from users without any of these are ignored.
 
 - **Blocking access**: create a role named **"no-kimaki"** (case-insensitive) to block specific users, even server owners.
+- **Restricted channel**: create a role named **"kimaki-<channel name>"** (for example `kimaki-jellyfin`) and assign it to a member. That member can only chat in the channel with that name and its threads. Slash commands, buttons, voice, `!` shell and `/` commands are refused for them. Sessions in a restricted channel cannot run shell commands, edit files, or start subagents, for anyone, owner included.
 - **Other bots**: messages from other Discord bots are ignored. To start sessions from scripts or CI, use `kimaki send`.
 
 ## Best Practices
